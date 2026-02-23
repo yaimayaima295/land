@@ -27,6 +27,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # -------------------------------
+      # Установим Snyk CLI глобально
+      # -------------------------------
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+
       # -----------------
       # SBOM (Node)
       # -----------------
