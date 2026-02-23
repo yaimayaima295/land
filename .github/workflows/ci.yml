@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # -----------------
+      # SBOM (Node)
+      # -----------------
+      - name: Generate SBOM (Node)
+        run: npx @cyclonedx/cyclonedx-npm --output-file sbom-node.json
+
+      - name: Upload SBOM Node
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-node
+          path: sbom-node.json
+
+      # -----------------
+      # Docker build
+      # -----------------
+      - name: Build Docker image
+        run: docker build -t myapp:ci .
+
+      # -----------------
+      # SBOM (Docker) через Syft
+      # -----------------
+      - name: Generate SBOM (Docker)
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/app \
+            anchore/syft:latest \
+            myapp:ci -o cyclonedx-json=/app/sbom-docker.json
+
+      - name: Upload SBOM Docker
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-docker
+          path: sbom-docker.json
+
+      - name: Snyk test (dependencies)
+        run: |
+          mkdir -p snyk-reports
+          snyk test --json > snyk-reports/deps.json || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Snyk test (container)
+        run: |
+          mkdir -p snyk-reports
+          snyk container test myapp:ci --json > snyk-reports/container.json || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Upload Snyk reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-reports
+          path: snyk-reports/
